@@ -21,7 +21,7 @@ class EpisodeRuntime:
     done: bool
 
 
-class IncidentGymEnv:
+class ProdGuardEnv:
     def __init__(self, default_task: str = "easy") -> None:
         self._runtime: EpisodeRuntime | None = None
         self.reset(default_task)
@@ -178,11 +178,13 @@ class IncidentGymEnv:
                     )
 
             if action.action == ActionType.CHECK_LOGS:
+                self._mark_required_action(action)
                 revealed = self._reveal_log(action.service or "")
                 reward += 1.2 if revealed else 0.2
 
             elif action.action == ActionType.CHECK_METRICS:
                 assert action.service is not None
+                self._mark_required_action(action)
                 if action.service in runtime.scenario.metrics:
                     first_time = action.service not in runtime.state.visible_metrics
                     runtime.state.visible_metrics[action.service] = deepcopy(runtime.scenario.metrics[action.service])

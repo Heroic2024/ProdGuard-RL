@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ProdGuard Control Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-one"></div>
+  <div class="bg-shape bg-shape-two"></div>
+
+  <main class="layout">
+    <header class="hero panel reveal">
+      <p class="eyebrow">IncidentGym RL</p>
+      <h1>ProdGuard Control Room</h1>
+      <p class="subtitle">Run scenarios, inspect telemetry, and operate your response loop in real time.</p>
+      <div class="hero-actions">
+        <label for="taskSelect">Scenario</label>
+        <select id="taskSelect"></select>
+        <button id="resetBtn">Start Episode</button>
+        <button id="refreshStateBtn" class="ghost">Refresh State</button>
+      </div>
+    </header>
+
+    <section class="panel reveal delay-1">
+      <div class="section-title-row">
+        <h2>Action Console</h2>
+        <span id="episodeStatus" class="status-pill">Idle</span>
+      </div>
+
+      <form id="actionForm" class="action-grid">
+        <div>
+          <label for="actionSelect">Action</label>
+          <select id="actionSelect" required>
+            <option value="check_logs">check_logs</option>
+            <option value="check_metrics">check_metrics</option>
+            <option value="restart_service">restart_service</option>
+            <option value="scale_service">scale_service</option>
+            <option value="rollback_deployment">rollback_deployment</option>
+            <option value="declare_root_cause">declare_root_cause</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="serviceInput">Service</label>
+          <input id="serviceInput" type="text" placeholder="api-gateway" />
+        </div>
+
+        <div>
+          <label for="causeInput">Root Cause</label>
+          <input id="causeInput" type="text" placeholder="Connection pool exhaustion" />
+        </div>
+
+        <div>
+          <label for="confidenceInput">Confidence</label>
+          <input id="confidenceInput" type="number" min="0" max="1" step="0.01" placeholder="0.85" />
+        </div>
+
+        <button type="submit" id="stepBtn">Send Step</button>
+      </form>
+
+      <div class="quick-actions">
+        <button data-qaction="check_logs">Check Logs</button>
+        <button data-qaction="check_metrics">Check Metrics</button>
+        <button data-qaction="restart_service">Restart</button>
+        <button data-qaction="scale_service">Scale</button>
+        <button data-qaction="rollback_deployment">Rollback</button>
+      </div>
+    </section>
+
+    <section class="cards reveal delay-2">
+      <article class="panel metric-card">
+        <h3>Step</h3>
+        <p id="stepCount">0</p>
+      </article>
+      <article class="panel metric-card">
+        <h3>Reward</h3>
+        <p id="lastReward">0.000</p>
+      </article>
+      <article class="panel metric-card">
+        <h3>Done</h3>
+        <p id="doneState">No</p>
+      </article>
+      <article class="panel metric-card">
+        <h3>Score</h3>
+        <p id="finalScore">-</p>
+      </article>
+    </section>
+
+    <section class="panel reveal delay-3">
+      <h2>Alert</h2>
+      <p id="alertText" class="mono">No episode running yet.</p>
+    </section>
+
+    <section class="grid-2 reveal delay-3">
+      <article class="panel">
+        <h2>Visible Logs</h2>
+        <ul id="logsList" class="log-list"></ul>
+      </article>
+      <article class="panel">
+        <h2>Visible Metrics</h2>
+        <div id="metricsGrid" class="metrics-grid"></div>
+      </article>
+    </section>
+
+    <section class="panel reveal delay-4">
+      <h2>Last API Response</h2>
+      <pre id="responseBox" class="response-box">{}</pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

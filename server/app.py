@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
 from threading import Lock
 
+import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from env import ProdGuardEnv
-from scenarios import supported_tasks
 from incident_types import AgentAction, IncidentState, StepResult
+from scenarios import supported_tasks
 
 
 class ResetRequest(BaseModel):
@@ -20,17 +18,6 @@ class ResetRequest(BaseModel):
 app = FastAPI(title="IncidentGym", version="1.0.0")
 _env = ProdGuardEnv(default_task="easy")
 _lock = Lock()
-_frontend_dir = Path(__file__).parent / "frontend"
-
-if _frontend_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(_frontend_dir)), name="static")
-
-
-@app.get("/")
-def home() -> FileResponse:
-    if not _frontend_dir.exists():
-        raise HTTPException(status_code=404, detail="Frontend directory not found")
-    return FileResponse(_frontend_dir / "index.html")
 
 
 @app.get("/health")
@@ -64,7 +51,9 @@ def state() -> IncidentState:
         return _env.state()
 
 
-if __name__ == "__main__":
-    import uvicorn
+def main() -> None:
+    uvicorn.run("server.app:app", host="0.0.0.0", port=8000)
 
-    uvicorn.run("server:app", host="0.0.0.0", port=8000)
+
+if __name__ == "__main__":
+    main()

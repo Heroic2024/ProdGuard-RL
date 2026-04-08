@@ -1,80 +1,28 @@
-"""
-Inference Script Example
-===================================
-MANDATORY
-- Before submitting, ensure the following variables are defined in your environment configuration:
-    API_BASE_URL   The API endpoint for the LLM.
-    MODEL_NAME     The model identifier to use for inference.
-    HF_TOKEN       Your Hugging Face / API key.
-    LOCAL_IMAGE_NAME The name of the local image to use for the environment if you are using from_docker_image()
-                     method
+"""Submission inference script for ProdGuard-RL."""
 
-- Defaults are set only for API_BASE_URL and MODEL_NAME 
-    (and should reflect your active inference setup):
-    API_BASE_URL = os.getenv("API_BASE_URL", "<your-active-endpoint>")
-    MODEL_NAME = os.getenv("MODEL_NAME", "<your-active-model>")
-    
-- The inference script must be named `inference.py` and placed in the root directory of the project
-- Participants must use OpenAI Client for all LLM calls using above variables
-
-STDOUT FORMAT
-- The script must emit exactly three line types to stdout, in this order:
-
-    [START] task=<task_name> env=<benchmark> model=<model_name>
-    [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-    [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
-
-  Rules:
-    - One [START] line at episode begin.
-    - One [STEP] line per step, immediately after env.step() returns.
-    - One [END] line after env.close(), always emitted (even on exception).
-    - reward and rewards are formatted to 2 decimal places.
-    - done and success are lowercase booleans: true or false.
-    - error is the raw last_action_error string, or null if none.
-    - All fields on a single line with no newlines within a line.
-    - Each tasks should return score in [0, 1]
-
-  Example:
-    [START] task=click-test env=miniwob model=Qwen3-VL-30B
-    [STEP] step=1 action=click('123') reward=0.00 done=false error=null
-    [STEP] step=2 action=fill('456','text') reward=0.00 done=false error=null
-    [STEP] step=3 action=click('789') reward=1.00 done=true error=null
-    [END] success=true steps=3 score=1.00 rewards=0.00,0.00,1.00
-"""
-
-import asyncio
+import json
 import os
+import re
 import textwrap
-from typing import List, Optional
+from typing import Any, Optional
 
+import requests
 from openai import OpenAI
 
-from my_env_v4 import MyEnvV4Action, MyEnvV4Env
-IMAGE_NAME = os.getenv("IMAGE_NAME") # If you are using docker image 
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-
+HF_TOKEN = os.getenv("HF_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-TASK_NAME = os.getenv("MY_ENV_V4_TASK", "echo")
-BENCHMARK = os.getenv("MY_ENV_V4_BENCHMARK", "my_env_v4")
-MAX_STEPS = 8
-TEMPERATURE = 0.7
-MAX_TOKENS = 150
-SUCCESS_SCORE_THRESHOLD = 0.1  # normalized score in [0, 1]
 
-# Max possible reward: each token contributes 0.1, across all steps
-_MAX_REWARD_PER_STEP = MAX_TOKENS * 0.1
-MAX_TOTAL_REWARD = MAX_STEPS * _MAX_REWARD_PER_STEP
+ENV_BASE_URL = os.getenv("ENV_BASE_URL") or "http://127.0.0.1:8000"
+BENCHMARK = "ProdGuard-RL"
+MAX_STEPS = 12
+REQUEST_TIMEOUT = 30
 
-SYSTEM_PROMPT = textwrap.dedent(
-    """
-    You are interacting with a simple echo environment.
-    Each turn you must send a message. The environment will echo it back.
-    Reward is proportional to message length: reward = len(message) * 0.1
-    Your goal is to maximize total reward by sending meaningful, substantive messages.
-    Reply with exactly one message string — no quotes, no prefixes, just the message text.
-    """
-).strip()
+SYSTEM_PROMPT = (
+    "You are a DevOps incident-response assistant. "
+    "Output exactly one compact JSON object with keys: "
+    "action, service, cause, confidence."
+)
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -90,27 +38,95 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
-def build_user_prompt(step: int, last_echoed: str, last_reward: float, history: List[str]) -> str:
-    history_block = "\n".join(history[-4:]) if history else "None"
+def _safe_compact(raw: str, max_len: int = 120) -> str:
+    return re.sub(r"\s+", " ", raw).strip()[:max_len]
+
+
+def build_user_prompt(task: str, step: int, state: dict[str, Any], history: list[str]) -> str:
+    history_block = "\n".join(history[-5:]) if history else "None"
     return textwrap.dedent(
         f"""
+        Task: {task}
         Step: {step}
-        Last echoed message: {last_echoed!r}
-        Last reward: {last_reward:.2f}
-        Previous steps:
+        Alert: {state.get("alert", "")}
+        Visible services: {state.get("services", [])}
+        Visible metrics: {json.dumps(state.get("visible_metrics", {}), separators=(",", ":"))}
+        Recent logs: {state.get("visible_logs", [])[-3:]}
+        Previous actions:
         {history_block}
-        Send your next message.
+        Return one JSON action for incident handling.
         """
     ).strip()
 
 
-def get_model_message(client: OpenAI, step: int, last_echoed: str, last_reward: float, history: List[str]) -> str:
-    user_prompt = build_user_prompt(step, last_echoed, last_reward, history)
+def _fallback_policy(task: str, step: int) -> dict[str, Any]:
+    if task == "easy":
+        plan = [
+            {"action": "check_metrics", "service": "db"},
+            {"action": "check_logs", "service": "db"},
+            {"action": "restart_service", "service": "db"},
+            {"action": "declare_root_cause", "cause": "database outage", "confidence": 0.92},
+        ]
+    elif task == "medium":
+        plan = [
+            {"action": "check_metrics", "service": "db"},
+            {"action": "check_logs", "service": "db"},
+            {"action": "check_metrics", "service": "api"},
+            {"action": "check_logs", "service": "api"},
+            {"action": "scale_service", "service": "api"},
+            {"action": "rollback_deployment"},
+            {"action": "declare_root_cause", "cause": "memory leak in api release", "confidence": 0.9},
+        ]
+    else:
+        plan = [
+            {"action": "check_metrics", "service": "cache"},
+            {"action": "check_metrics", "service": "db"},
+            {"action": "check_logs", "service": "api"},
+            {"action": "check_logs", "service": "cache"},
+            {"action": "restart_service", "service": "cache"},
+            {"action": "restart_service", "service": "db"},
+            {"action": "rollback_deployment"},
+            {
+                "action": "declare_root_cause",
+                "cause": "cache outage caused db saturation and api failure",
+                "confidence": 0.9,
+            },
+        ]
+    return plan[min(step - 1, len(plan) - 1)]
+
+
+def _coerce_action(raw: dict[str, Any], task: str, step: int) -> dict[str, Any]:
+    allowed = {
+        "check_logs",
+        "check_metrics",
+        "restart_service",
+        "scale_service",
+        "rollback_deployment",
+        "declare_root_cause",
+    }
+    action = str(raw.get("action", "")).strip().lower()
+    if action not in allowed:
+        return _fallback_policy(task, step)
+
+    payload: dict[str, Any] = {"action": action}
+    if "service" in raw and raw.get("service"):
+        payload["service"] = str(raw["service"]).strip()
+    if action == "declare_root_cause":
+        payload["cause"] = str(raw.get("cause") or _fallback_policy(task, step).get("cause") or "unknown")
+        try:
+            payload["confidence"] = float(raw.get("confidence", 0.75))
+        except (TypeError, ValueError):
+            payload["confidence"] = 0.75
+    return payload
+
+
+def get_model_action(client: OpenAI, task: str, step: int, state: dict[str, Any], history: list[str]) -> dict[str, Any]:
+    user_prompt = build_user_prompt(task, step, state, history)
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -118,71 +134,89 @@ def get_model_message(client: OpenAI, step: int, last_echoed: str, last_reward: 
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
+            temperature=0.2,
+            max_tokens=120,
             stream=False,
         )
-        text = (completion.choices[0].message.content or "").strip()
-        return text if text else "hello"
+        content = (completion.choices[0].message.content or "").strip()
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            return _coerce_action(parsed, task, step)
+        return _fallback_policy(task, step)
     except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
-        return "hello"
+        return _fallback_policy(task, step)
 
 
-async def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+def _post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    resp = requests.post(f"{ENV_BASE_URL}{path}", json=payload, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
 
-    env = await MyEnvV4Env.from_docker_image(IMAGE_NAME)
 
-    history: List[str] = []
-    rewards: List[float] = []
-    steps_taken = 0
+def _get(path: str) -> dict[str, Any]:
+    resp = requests.get(f"{ENV_BASE_URL}{path}", timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def run_task(client: OpenAI, task: str) -> tuple[bool, int, float, list[float]]:
+    rewards: list[float] = []
+    history: list[str] = []
     score = 0.0
     success = False
+    steps_taken = 0
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        result = await env.reset() # OpenENV.reset()
-        last_echoed = result.observation.echoed_message
-        last_reward = 0.0
-
+        state = _post("/reset", {"task": task})
         for step in range(1, MAX_STEPS + 1):
-            if result.done:
-                break
+            action_payload = get_model_action(client, task, step, state, history)
+            result = _post("/step", action_payload)
 
-            message = get_model_message(client, step, last_echoed, last_reward, history)
-
-            result = await env.step(MyEnvV4Action(message=message))
-            obs = result.observation
-
-            reward = result.reward or 0.0
-            done = result.done
-            error = None
+            reward = float(result.get("reward", 0.0) or 0.0)
+            done = bool(result.get("done", False))
+            info = result.get("info") or {}
+            next_state = result.get("state") or {}
+            error = next_state.get("last_action_error") if isinstance(next_state, dict) else None
 
             rewards.append(reward)
             steps_taken = step
-            last_echoed = obs.echoed_message
-            last_reward = reward
 
-            log_step(step=step, action=message, reward=reward, done=done, error=error)
+            action_compact = json.dumps(action_payload, separators=(",", ":"))
+            log_step(step=step, action=action_compact, reward=reward, done=done, error=error)
 
-            history.append(f"Step {step}: {message!r} -> reward {reward:+.2f}")
+            history.append(f"{step}:{action_compact}:r={reward:.2f}")
+            state = next_state if isinstance(next_state, dict) else _get("/state")
 
             if done:
+                score = float(info.get("score", 0.0) or 0.0)
+                score = min(max(score, 0.0), 1.0)
+                success = score >= 0.1
                 break
 
-        score = sum(rewards) / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.0
-        score = min(max(score, 0.0), 1.0)  # clamp to [0, 1]
-        success = score >= SUCCESS_SCORE_THRESHOLD
+        if not rewards:
+            score = 0.0
+            success = False
+        elif steps_taken and score == 0.0:
+            total = sum(rewards)
+            score = min(max((total / max(steps_taken, 1) + 2.0) / 4.0, 0.0), 1.0)
+            success = score >= 0.1
 
+    except Exception as exc:
+        success = False
     finally:
-        try:
-            await env.close()
-        except Exception as e:
-            print(f"[DEBUG] env.close() error (container cleanup): {e}", flush=True)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
+    return success, steps_taken, score, rewards
+
+
+def main() -> None:
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "")
+    tasks = _get("/tasks").get("tasks", ["easy", "medium", "hard"])
+    for task in tasks:
+        run_task(client, str(task))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

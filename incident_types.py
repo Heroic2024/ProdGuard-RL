@@ -5,10 +5,10 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 
-_TYPES_PATH = Path(__file__).with_name("types.py")
+_TYPES_PATH = Path(__file__).with_name("incident_models.py")
 _SPEC = spec_from_file_location("incident_gym_types", _TYPES_PATH)
 if _SPEC is None or _SPEC.loader is None:
-    raise RuntimeError("Failed to load local types.py module")
+    raise RuntimeError("Failed to load local incident_models.py module")
 
 _MODULE = module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _MODULE

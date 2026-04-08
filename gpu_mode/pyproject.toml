@@ -41,5 +41,9 @@ server = "gpu_mode.server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["gpu_mode", "gpu_mode.server"]
-package-dir = { "gpu_mode" = ".", "gpu_mode.server" = "server" }
+packages = ["gpu_mode", "gpu_mode.server", "gpu_mode.engine"]
+
+[tool.setuptools.package-dir]
+"gpu_mode" = "."
+"gpu_mode.server" = "server"
+"gpu_mode.engine" = "engine"

@@ -1,6 +1,6 @@
-from scenarios.easy import build_scenario as build_easy
-from scenarios.hard import build_scenario as build_hard
-from scenarios.medium import build_scenario as build_medium
+from scenarios.easy_db_outage import get_scenario as build_easy
+from scenarios.hard_cascade_failure import get_scenario as build_hard
+from scenarios.medium_memory_leak import get_scenario as build_medium
 from incident_types import ScenarioConfig
 
 

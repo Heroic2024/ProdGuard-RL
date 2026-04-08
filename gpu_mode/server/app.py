@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-FastAPI application for the Gpu Mode Environment.
+FastAPI application for the Gpu Mode incident-response RL environment.
 
-This module creates an HTTP server that exposes the GpuModeEnvironment
+This module creates an HTTP server that exposes GpuModeEnvironment
 over HTTP and WebSocket endpoints, compatible with EnvClient.
 
 Endpoints:
@@ -49,7 +49,7 @@ app = create_app(
     GpuModeAction,
     GpuModeObservation,
     env_name="gpu_mode",
-    max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
+    max_concurrent_envs=4,
 )
 
 

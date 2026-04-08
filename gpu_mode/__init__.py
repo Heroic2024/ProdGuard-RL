@@ -7,9 +7,10 @@
 """Gpu Mode Environment."""
 
 from .client import GpuModeEnv
-from .models import GpuModeAction, GpuModeObservation
+from .models import ActionType, GpuModeAction, GpuModeObservation
 
 __all__ = [
+    "ActionType",
     "GpuModeAction",
     "GpuModeObservation",
     "GpuModeEnv",

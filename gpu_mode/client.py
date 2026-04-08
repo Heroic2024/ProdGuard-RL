@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Gpu Mode Environment Client."""
+"""Gpu Mode RL environment client."""
 
 from typing import Dict
 
@@ -18,31 +18,7 @@ from .models import GpuModeAction, GpuModeObservation
 class GpuModeEnv(
     EnvClient[GpuModeAction, GpuModeObservation, State]
 ):
-    """
-    Client for the Gpu Mode Environment.
-
-    This client maintains a persistent WebSocket connection to the environment server,
-    enabling efficient multi-step interactions with lower latency.
-    Each client instance has its own dedicated environment session on the server.
-
-    Example:
-        >>> # Connect to a running server
-        >>> with GpuModeEnv(base_url="http://localhost:8000") as client:
-        ...     result = client.reset()
-        ...     print(result.observation.echoed_message)
-        ...
-        ...     result = client.step(GpuModeAction(message="Hello!"))
-        ...     print(result.observation.echoed_message)
-
-    Example with Docker:
-        >>> # Automatically start container and connect
-        >>> client = GpuModeEnv.from_docker_image("gpu_mode-env:latest")
-        >>> try:
-        ...     result = client.reset()
-        ...     result = client.step(GpuModeAction(message="Test"))
-        ... finally:
-        ...     client.close()
-    """
+    """WebSocket/HTTP client for multi-step incident response episodes."""
 
     def _step_payload(self, action: GpuModeAction) -> Dict:
         """
@@ -54,9 +30,16 @@ class GpuModeEnv(
         Returns:
             Dictionary representation suitable for JSON encoding
         """
-        return {
-            "message": action.message,
-        }
+        payload = {"action": action.action.value}
+        if action.service is not None:
+            payload["service"] = action.service
+        if action.cause is not None:
+            payload["cause"] = action.cause
+        if action.confidence is not None:
+            payload["confidence"] = action.confidence
+        if action.task is not None:
+            payload["task"] = action.task
+        return payload
 
     def _parse_result(self, payload: Dict) -> StepResult[GpuModeObservation]:
         """
@@ -69,13 +52,21 @@ class GpuModeEnv(
             StepResult with GpuModeObservation
         """
         obs_data = payload.get("observation", {})
-        observation = GpuModeObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
-            done=payload.get("done", False),
-            reward=payload.get("reward"),
-            metadata=obs_data.get("metadata", {}),
-        )
+        observation = GpuModeObservation.model_validate({
+            "alert": obs_data.get("alert", ""),
+            "visible_logs": obs_data.get("visible_logs", []),
+            "visible_metrics": obs_data.get("visible_metrics", {}),
+            "services": obs_data.get("services", []),
+            "step_count": obs_data.get("step_count", payload.get("step_count", 0)),
+            "task": obs_data.get("task", "easy"),
+            "resolved": obs_data.get("resolved", False),
+            "score": obs_data.get("score"),
+            "last_action_error": obs_data.get("last_action_error"),
+            "hints": obs_data.get("hints", []),
+            "done": payload.get("done", False),
+            "reward": payload.get("reward"),
+            "metadata": obs_data.get("metadata", {}),
+        })
 
         return StepResult(
             observation=observation,
