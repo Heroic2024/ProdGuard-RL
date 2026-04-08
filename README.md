@@ -93,7 +93,7 @@ The runner emits structured logs per task:
 - [STEP] action, reward, done, error
 - [END] success, steps, score, reward trace
 
-## Hugging Face Space
+## Hugging Face Space 🤗
 
 This repository is configured for Docker-based Hugging Face Space deployment.
 
