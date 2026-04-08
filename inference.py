@@ -9,8 +9,8 @@ from typing import Any, Optional
 import requests
 from openai import OpenAI
 
-HF_TOKEN = os.getenv("HF_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or ""
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
 ENV_BASE_URL = os.getenv("ENV_BASE_URL") or "http://127.0.0.1:8000"
@@ -212,7 +212,7 @@ def run_task(client: OpenAI, task: str) -> tuple[bool, int, float, list[float]]:
 
 
 def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "")
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     tasks: list[str] = ["easy", "medium", "hard"]
     try:
         discovered = _get("/tasks").get("tasks", tasks)
