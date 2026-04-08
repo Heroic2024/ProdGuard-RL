@@ -17,6 +17,7 @@ ENV_BASE_URL = os.getenv("ENV_BASE_URL") or "http://127.0.0.1:8000"
 BENCHMARK = "ProdGuard-RL"
 MAX_STEPS = 12
 REQUEST_TIMEOUT = 30
+SCORE_EPSILON = 1e-4
 
 SYSTEM_PROMPT = (
     "You are a DevOps incident-response assistant. "
@@ -40,11 +41,15 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.4f} rewards={rewards_str}", flush=True)
 
 
 def _safe_compact(raw: str, max_len: int = 120) -> str:
     return re.sub(r"\s+", " ", raw).strip()[:max_len]
+
+
+def _strict_score(value: float, eps: float = SCORE_EPSILON) -> float:
+    return max(eps, min(1.0 - eps, float(value)))
 
 
 def build_user_prompt(task: str, step: int, state: dict[str, Any], history: list[str]) -> str:
@@ -208,21 +213,21 @@ def run_task(client: OpenAI, task: str) -> tuple[bool, int, float, list[float]]:
             state = next_state if isinstance(next_state, dict) else _get("/state")
 
             if done:
-                score = float(info.get("score", 0.0) or 0.0)
-                score = min(max(score, 0.0), 1.0)
+                score = _strict_score(float(info.get("score", 0.0) or 0.0))
                 success = score >= 0.1
                 break
 
         if not rewards:
-            score = 0.0
+            score = _strict_score(0.0)
             success = False
         elif steps_taken and score == 0.0:
             total = sum(rewards)
-            score = min(max((total / max(steps_taken, 1) + 2.0) / 4.0, 0.0), 1.0)
+            score = _strict_score((total / max(steps_taken, 1) + 2.0) / 4.0)
             success = score >= 0.1
 
     except Exception as exc:
         success = False
+        score = _strict_score(0.0)
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 

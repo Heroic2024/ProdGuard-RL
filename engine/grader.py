@@ -7,6 +7,10 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+def _strict_open_unit(value: float, eps: float = 1e-4) -> float:
+    return max(eps, min(1.0 - eps, value))
+
+
 def _action_is_helpful(action: AgentAction, scenario: ScenarioConfig) -> bool:
     for helpful in scenario.helpful_actions:
         if helpful.action != action.action:
@@ -43,4 +47,4 @@ def grade_episode(
     if not diagnosis_correct:
         score = min(score, 0.49)
 
-    return round(_clamp(score), 4)
+    return round(_strict_open_unit(_clamp(score)), 4)
