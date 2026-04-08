@@ -213,7 +213,14 @@ def run_task(client: OpenAI, task: str) -> tuple[bool, int, float, list[float]]:
 
 def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "")
-    tasks = _get("/tasks").get("tasks", ["easy", "medium", "hard"])
+    tasks: list[str] = ["easy", "medium", "hard"]
+    try:
+        discovered = _get("/tasks").get("tasks", tasks)
+        if isinstance(discovered, list) and discovered:
+            tasks = [str(t) for t in discovered]
+    except Exception as exc:
+        print(f"[WARN] unable to fetch /tasks from {ENV_BASE_URL}: {exc}", flush=True)
+
     for task in tasks:
         run_task(client, str(task))
 
