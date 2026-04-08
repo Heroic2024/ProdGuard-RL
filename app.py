@@ -52,10 +52,11 @@ def tasks() -> dict[str, list[str]]:
 
 
 @app.post("/reset", response_model=IncidentState)
-def reset(payload: ResetRequest) -> IncidentState:
-    task = (payload.task or "easy").strip().lower()
+def reset(payload: ResetRequest | None = None) -> IncidentState:
+    raw_task = payload.task if payload is not None else "easy"
+    task = (raw_task or "easy").strip().lower()
     if task not in set(supported_tasks()):
-        raise HTTPException(status_code=400, detail=f"Unsupported task '{payload.task}'")
+        raise HTTPException(status_code=400, detail=f"Unsupported task '{raw_task}'")
     with _lock:
         return _env.reset(task)
 
