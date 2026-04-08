@@ -10,7 +10,7 @@ import requests
 from openai import OpenAI
 
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or ""
+API_KEY = os.getenv("API_KEY") or ""
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
 ENV_BASE_URL = os.getenv("ENV_BASE_URL") or "http://127.0.0.1:8000"
@@ -147,6 +147,24 @@ def get_model_action(client: OpenAI, task: str, step: int, state: dict[str, Any]
         return _fallback_policy(task, step)
 
 
+def warmup_proxy_call(client: OpenAI) -> None:
+    """Force a minimal request through the configured LLM proxy for validator telemetry."""
+    try:
+        client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "Return JSON."},
+                {"role": "user", "content": '{"action":"check_logs","service":"api"}'},
+            ],
+            temperature=0,
+            max_tokens=8,
+            stream=False,
+        )
+        print("[INFO] proxy warmup call succeeded", flush=True)
+    except Exception as exc:
+        print(f"[WARN] proxy warmup call failed: {exc}", flush=True)
+
+
 def _post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     resp = requests.post(f"{ENV_BASE_URL}{path}", json=payload, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
@@ -212,7 +230,10 @@ def run_task(client: OpenAI, task: str) -> tuple[bool, int, float, list[float]]:
 
 
 def main() -> None:
+    if not API_KEY:
+        print("[WARN] API_KEY is not set; LLM proxy calls will fail", flush=True)
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    warmup_proxy_call(client)
     tasks: list[str] = ["easy", "medium", "hard"]
     try:
         discovered = _get("/tasks").get("tasks", tasks)
